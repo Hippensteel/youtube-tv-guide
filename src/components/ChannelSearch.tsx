@@ -15,7 +15,8 @@ export function ChannelSearch() {
   const { addChannel, channelIds } = useChannelStore();
 
   const search = useDebouncedCallback(async (q: string) => {
-    if (q.length < 2) {
+    // Require at least 3 chars to avoid burning quota on short queries
+    if (q.length < 3) {
       setResults([]);
       return;
     }
@@ -39,7 +40,7 @@ export function ChannelSearch() {
     } finally {
       setIsLoading(false);
     }
-  }, 300);
+  }, 600);
 
   const handleAddChannel = useCallback(
     async (channel: ChannelInfo) => {
