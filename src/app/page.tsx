@@ -1,13 +1,32 @@
 'use client';
 
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { TVGuideGrid } from '@/components/TVGuideGrid';
 import { useChannelStore } from '@/hooks/useChannels';
 import { useEvents } from '@/hooks/useEvents';
 
+function calculateTimeWindow() {
+  const now = new Date();
+  // Round to nearest 30 minutes
+  now.setMinutes(Math.floor(now.getMinutes() / 30) * 30, 0, 0);
+
+  const start = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const end = new Date(now.getTime() + 18 * 60 * 60 * 1000);
+
+  return { startTime: start, endTime: end };
+}
+
 export default function Home() {
   const { channelIds, channels, loadChannelDetails } = useChannelStore();
+
+  // Use state for time window to avoid hydration mismatch
+  const [timeWindow, setTimeWindow] = useState<{ startTime: Date; endTime: Date } | null>(null);
+
+  // Calculate time window on client only
+  useEffect(() => {
+    setTimeWindow(calculateTimeWindow());
+  }, []);
 
   // Load channel details for any IDs that don't have full info
   useEffect(() => {
@@ -17,23 +36,11 @@ export default function Home() {
     }
   }, [channelIds, channels, loadChannelDetails]);
 
-  // Calculate time window: from 6 hours ago to 18 hours from now (24h total)
-  const { startTime, endTime } = useMemo(() => {
-    const now = new Date();
-    // Round to nearest 30 minutes
-    now.setMinutes(Math.floor(now.getMinutes() / 30) * 30, 0, 0);
-
-    const start = new Date(now.getTime() - 6 * 60 * 60 * 1000);
-    const end = new Date(now.getTime() + 18 * 60 * 60 * 1000);
-
-    return { startTime: start, endTime: end };
-  }, []);
-
   // Fetch events for followed channels
   const { events, isLoading, error, refresh } = useEvents({
     channelIds,
-    startTime,
-    endTime,
+    startTime: timeWindow?.startTime ?? new Date(),
+    endTime: timeWindow?.endTime ?? new Date(),
     refreshInterval: 60000, // 1 minute
   });
 
@@ -90,13 +97,19 @@ export default function Home() {
       <div className="flex-1 flex overflow-hidden">
         <ChannelSidebar />
 
-        <TVGuideGrid
-          channels={channelList}
-          events={events}
-          startTime={startTime}
-          hoursToShow={24}
-          slotDuration={30}
-        />
+        {timeWindow ? (
+          <TVGuideGrid
+            channels={channelList}
+            events={events}
+            startTime={timeWindow.startTime}
+            hoursToShow={24}
+            slotDuration={30}
+          />
+        ) : (
+          <div className="flex-1 flex items-center justify-center bg-gray-900">
+            <div className="text-gray-400">Loading...</div>
+          </div>
+        )}
       </div>
     </div>
   );
