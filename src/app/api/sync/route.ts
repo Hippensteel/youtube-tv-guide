@@ -3,9 +3,10 @@ import { refreshAllChannels } from '@/lib/sync';
 
 // POST /api/sync - Manual trigger to refresh YouTube data
 // This is meant for the UI "Sync" button, not automated cron
+// Always forces refresh regardless of lastFetchedAt
 export async function POST() {
   try {
-    const result = await refreshAllChannels();
+    const result = await refreshAllChannels(true); // force=true
 
     return NextResponse.json({
       success: true,

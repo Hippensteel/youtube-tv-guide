@@ -18,7 +18,7 @@ export interface RefreshResult {
   errors: string[];
 }
 
-export async function refreshAllChannels(): Promise<RefreshResult> {
+export async function refreshAllChannels(force: boolean = false): Promise<RefreshResult> {
   const result: RefreshResult = {
     channelsSearched: 0,
     eventsFound: 0,
@@ -34,17 +34,22 @@ export async function refreshAllChannels(): Promise<RefreshResult> {
     return result;
   }
 
-  // Step 1: Find stale channels that need refresh
+  // Step 1: Find channels that need refresh
+  // If force=true, refresh all active channels regardless of lastFetchedAt
   const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS);
 
-  const staleChannels = await prisma.channel.findMany({
-    where: {
-      isActive: true,
-      OR: [{ lastFetchedAt: null }, { lastFetchedAt: { lt: staleThreshold } }],
-    },
+  const channelsToRefresh = await prisma.channel.findMany({
+    where: force
+      ? { isActive: true }
+      : {
+          isActive: true,
+          OR: [{ lastFetchedAt: null }, { lastFetchedAt: { lt: staleThreshold } }],
+        },
     orderBy: { fetchPriority: 'desc' },
     take: MAX_CHANNELS_PER_REFRESH,
   });
+
+  const staleChannels = channelsToRefresh;
 
   // Step 2: Search for upcoming events on each stale channel
   for (const channel of staleChannels) {
