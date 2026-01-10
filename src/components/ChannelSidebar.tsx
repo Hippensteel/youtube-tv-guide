@@ -1,10 +1,20 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useChannelStore } from '@/hooks/useChannels';
 import { ChannelSearch } from './ChannelSearch';
 
 export function ChannelSidebar() {
   const { channelIds, channels, removeChannel } = useChannelStore();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Use empty values during SSR to prevent hydration mismatch
+  const displayChannelIds = mounted ? channelIds : [];
+  const displayChannels = mounted ? channels : {};
 
   return (
     <div className="w-72 h-full bg-gray-50 border-r border-gray-200 flex flex-col">
@@ -14,15 +24,15 @@ export function ChannelSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {channelIds.length === 0 ? (
+        {displayChannelIds.length === 0 ? (
           <div className="p-4 text-center text-gray-500">
             <p className="text-sm">No channels added yet.</p>
             <p className="text-xs mt-1">Search above to add channels.</p>
           </div>
         ) : (
           <ul className="divide-y divide-gray-100">
-            {channelIds.map((id) => {
-              const channel = channels[id];
+            {displayChannelIds.map((id) => {
+              const channel = displayChannels[id];
               if (!channel) return null;
 
               return (
@@ -82,7 +92,7 @@ export function ChannelSidebar() {
 
       <div className="p-4 border-t border-gray-200 bg-white">
         <p className="text-xs text-gray-500 text-center">
-          {channelIds.length} channel{channelIds.length !== 1 ? 's' : ''} tracked
+          {displayChannelIds.length} channel{displayChannelIds.length !== 1 ? 's' : ''} tracked
         </p>
       </div>
     </div>
