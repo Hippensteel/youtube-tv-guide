@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Channels tracked by the system (shared pool)
+model Channel {
+  id              String    @id // YouTube channel ID (UC...)
+  handle          String?   // @handle if available
+  title           String
+  thumbnailUrl    String?
+  subscriberCount Int?
+
+  // Tracking metadata
+  addedAt         DateTime  @default(now())
+  lastFetchedAt   DateTime?
+  fetchPriority   Int       @default(0) // Higher = more users following
+  isActive        Boolean   @default(true)
+
+  // Relations
+  events          ScheduledEvent[]
+
+  @@index([fetchPriority])
+  @@index([lastFetchedAt])
+}
+
+// Upcoming live streams and premieres
+model ScheduledEvent {
+  id                 String      @id // YouTube video ID
+  channelId          String
+  channel            Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  title              String
+  description        String?
+  thumbnailUrl       String?
+
+  // Scheduling
+  scheduledStartTime DateTime
+  scheduledEndTime   DateTime?
+  actualStartTime    DateTime?
+  actualEndTime      DateTime?
+
+  // Status
+  eventType          EventType
+  status             EventStatus
+
+  // Metadata
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([scheduledStartTime])
+  @@index([channelId, scheduledStartTime])
+  @@index([status])
+}
+
+enum EventType {
+  LIVE_STREAM
+  PREMIERE
+}
+
+enum EventStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+// API quota tracking
+model QuotaLog {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  unitsUsed   Int
+  operation   String   // 'search', 'videos', 'channels', 'refresh'
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([date])
+}
