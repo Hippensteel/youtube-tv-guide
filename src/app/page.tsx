@@ -36,11 +36,11 @@ export default function Home() {
     }
   }, [channelIds, channels, loadChannelDetails]);
 
-  // Fetch events for followed channels
+  // Fetch events for followed channels (only after timeWindow is calculated)
   const { events, isLoading, error, refresh } = useEvents({
-    channelIds,
-    startTime: timeWindow?.startTime ?? new Date(),
-    endTime: timeWindow?.endTime ?? new Date(),
+    channelIds: timeWindow ? channelIds : [],
+    startTime: timeWindow?.startTime ?? new Date(0),
+    endTime: timeWindow?.endTime ?? new Date(0),
     refreshInterval: 60000, // 1 minute
   });
 
