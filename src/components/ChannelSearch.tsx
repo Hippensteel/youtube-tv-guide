@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useDebouncedCallback } from 'use-debounce';
 import { ChannelInfo } from '@/types';
 import { useChannelStore } from '@/hooks/useChannels';
 
@@ -14,10 +13,10 @@ export function ChannelSearch() {
 
   const { addChannel, channelIds } = useChannelStore();
 
-  const search = useDebouncedCallback(async (q: string) => {
-    // Require at least 3 chars to avoid burning quota on short queries
-    if (q.length < 3) {
-      setResults([]);
+  // Manual search - only triggers on Enter or button click
+  const search = useCallback(async () => {
+    if (query.length < 2) {
+      setError('Enter at least 2 characters');
       return;
     }
 
@@ -25,7 +24,7 @@ export function ChannelSearch() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/channels/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/channels/search?q=${encodeURIComponent(query)}`);
 
       if (!res.ok) {
         throw new Error('Search failed');
@@ -40,7 +39,7 @@ export function ChannelSearch() {
     } finally {
       setIsLoading(false);
     }
-  }, 600);
+  }, [query]);
 
   const handleAddChannel = useCallback(
     async (channel: ChannelInfo) => {
@@ -53,25 +52,30 @@ export function ChannelSearch() {
 
   const isChannelAdded = (channelId: string) => channelIds.includes(channelId);
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      search();
+    }
+  };
+
   return (
     <div className="w-full">
-      <div className="relative">
+      <div className="flex gap-2">
         <input
           type="text"
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            search(e.target.value);
-          }}
-          placeholder="Search YouTube channels..."
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500 bg-white"
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search channels..."
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500 bg-white text-sm"
         />
-
-        {isLoading && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
+        <button
+          onClick={search}
+          disabled={isLoading}
+          className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+        >
+          {isLoading ? '...' : 'Search'}
+        </button>
       </div>
 
       {quotaWarning && (
