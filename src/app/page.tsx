@@ -17,14 +17,14 @@ export default function Home() {
     }
   }, [channelIds, channels, loadChannelDetails]);
 
-  // Calculate time window: from 2 hours ago to 22 hours from now (24h total)
+  // Calculate time window: from 6 hours ago to 18 hours from now (24h total)
   const { startTime, endTime } = useMemo(() => {
     const now = new Date();
     // Round to nearest 30 minutes
     now.setMinutes(Math.floor(now.getMinutes() / 30) * 30, 0, 0);
 
-    const start = new Date(now.getTime() - 2 * 60 * 60 * 1000);
-    const end = new Date(now.getTime() + 22 * 60 * 60 * 1000);
+    const start = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+    const end = new Date(now.getTime() + 18 * 60 * 60 * 1000);
 
     return { startTime: start, endTime: end };
   }, []);
