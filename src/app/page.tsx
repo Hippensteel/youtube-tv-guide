@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState, useCallback } from 'react';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { TVGuideGrid } from '@/components/TVGuideGrid';
 import { useChannelStore } from '@/hooks/useChannels';
@@ -19,6 +19,8 @@ function calculateTimeWindow() {
 
 export default function Home() {
   const { channelIds, channels, loadChannelDetails } = useChannelStore();
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Use state for time window to avoid hydration mismatch
   const [timeWindow, setTimeWindow] = useState<{ startTime: Date; endTime: Date } | null>(null);
@@ -41,8 +43,27 @@ export default function Home() {
     channelIds: timeWindow ? channelIds : [],
     startTime: timeWindow?.startTime ?? new Date(0),
     endTime: timeWindow?.endTime ?? new Date(0),
-    refreshInterval: 60000, // 1 minute
+    refreshInterval: 0, // Disable auto-refresh, use manual sync
   });
+
+  // Sync with YouTube API then refresh local cache
+  const handleSync = useCallback(async () => {
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const res = await fetch('/api/sync', { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Sync failed');
+      }
+      // After syncing with YouTube, refresh from database
+      await refresh();
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [refresh]);
 
   // Convert channel record to array maintaining order
   const channelList = useMemo(() => {
@@ -70,24 +91,25 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-4">
-            {isLoading && (
+            {(isLoading || isSyncing) && (
               <div className="flex items-center gap-2 text-gray-400 text-sm">
                 <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                Refreshing...
+                {isSyncing ? 'Syncing with YouTube...' : 'Loading...'}
               </div>
             )}
 
-            {error && (
+            {(error || syncError) && (
               <div className="text-red-400 text-sm">
-                {error}
+                {syncError || error}
               </div>
             )}
 
             <button
-              onClick={refresh}
-              className="px-3 py-1.5 text-sm text-gray-300 border border-gray-600 rounded hover:bg-gray-700 transition-colors"
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="px-3 py-1.5 text-sm text-gray-300 border border-gray-600 rounded hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Refresh
+              Sync
             </button>
           </div>
         </div>
