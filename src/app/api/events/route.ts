@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   });
 
   // Transform to match frontend types
-  const transformedEvents = events.map((event) => ({
+  const transformedEvents = events.map((event: typeof events[number]) => ({
     id: event.id,
     channelId: event.channelId,
     channel: event.channel,
