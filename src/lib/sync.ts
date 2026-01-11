@@ -61,8 +61,8 @@ export async function refreshAllChannels(): Promise<RefreshResult> {
       const videoDetails = await getVideoDetails(uniqueVideoIds);
       result.quotaUsed += Math.ceil(uniqueVideoIds.length / 50) * QUOTA_COSTS.VIDEOS_LIST;
 
-      // Filter to only scheduled events (have liveStreamingDetails with scheduledStartTime)
-      const scheduledEvents = videoDetails.filter(v => v.scheduledStartTime);
+      // videoDetails already filtered to scheduled + currently live streams
+      const scheduledEvents = videoDetails;
       result.eventsFound = scheduledEvents.length;
 
       // Upsert events

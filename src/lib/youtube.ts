@@ -91,10 +91,20 @@ export async function getVideoDetails(videoIds: string[]): Promise<ScheduledEven
       const liveDetails = video.liveStreamingDetails;
       const snippet = video.snippet;
 
-      if (!liveDetails?.scheduledStartTime) continue;
+      // Include if:
+      // 1. Has scheduledStartTime (scheduled stream), OR
+      // 2. Currently live (has actualStartTime but no actualEndTime)
+      const isScheduled = !!liveDetails?.scheduledStartTime;
+      const isCurrentlyLive = liveDetails?.actualStartTime && !liveDetails?.actualEndTime;
 
-      const status = determineEventStatus(liveDetails);
+      if (!isScheduled && !isCurrentlyLive) continue;
+
+      const status = determineEventStatus(liveDetails!);
       const eventType = determineEventType(video);
+
+      // Use scheduledStartTime if available, otherwise use actualStartTime (spontaneous streams)
+      const startTime = liveDetails?.scheduledStartTime || liveDetails?.actualStartTime;
+      if (!startTime) continue;
 
       events.push({
         id: video.id || '',
@@ -102,11 +112,11 @@ export async function getVideoDetails(videoIds: string[]): Promise<ScheduledEven
         title: snippet?.title || '',
         description: snippet?.description || null,
         thumbnailUrl: snippet?.thumbnails?.medium?.url || snippet?.thumbnails?.default?.url || null,
-        scheduledStartTime: new Date(liveDetails.scheduledStartTime),
-        scheduledEndTime: liveDetails.scheduledEndTime
+        scheduledStartTime: new Date(startTime),
+        scheduledEndTime: liveDetails?.scheduledEndTime
           ? new Date(liveDetails.scheduledEndTime)
           : null,
-        actualStartTime: liveDetails.actualStartTime
+        actualStartTime: liveDetails?.actualStartTime
           ? new Date(liveDetails.actualStartTime)
           : null,
         eventType,
