@@ -94,7 +94,13 @@ export async function refreshAllChannels(): Promise<RefreshResult> {
         result.eventsUpdated++;
       }
     } catch (error) {
-      result.errors.push(`Video details fetch failed: ${error}`);
+      // API quota exhausted - RSS still worked, just can't check live status
+      const errorMsg = String(error);
+      if (errorMsg.includes('quota')) {
+        result.errors.push('YouTube API quota exhausted - RSS fetch succeeded, but cannot check live status until quota resets at midnight PT');
+      } else {
+        result.errors.push(`Video details fetch failed: ${error}`);
+      }
     }
   }
 
