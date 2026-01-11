@@ -51,9 +51,29 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('YouTube search error:', error);
-    return NextResponse.json(
-      { error: 'Failed to search YouTube' },
-      { status: 500 }
-    );
+
+    // If API fails (quota exhausted, etc), fall back to database
+    const cachedChannels = await prisma.channel.findMany({
+      where: {
+        OR: [
+          { title: { contains: query, mode: 'insensitive' } },
+          { handle: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      take: 10,
+      select: {
+        id: true,
+        title: true,
+        handle: true,
+        thumbnailUrl: true,
+        subscriberCount: true,
+      },
+    });
+
+    return NextResponse.json({
+      channels: cachedChannels,
+      source: 'cache',
+      quotaWarning: true,
+    });
   }
 }
