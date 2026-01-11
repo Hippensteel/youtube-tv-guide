@@ -1,73 +1,72 @@
 import { prisma } from './prisma';
-import { searchUpcomingEvents, getVideoDetails } from './youtube';
-import { checkQuota, logQuotaUsage, QUOTA_COSTS } from './quota';
+import { getVideoDetails } from './youtube';
+import { fetchChannelRSS } from './rss';
+import { logQuotaUsage, QUOTA_COSTS } from './quota';
 import { EventStatus } from '@prisma/client';
 
-const MAX_CHANNELS_PER_REFRESH = 20;
-const STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours
-
 export interface RefreshResult {
-  channelsSearched: number;
+  channelsFetched: number;
+  videosChecked: number;
   eventsFound: number;
-  eventsRefreshed: number;
-  quotaUsed: {
-    search: number;
-    videos: number;
-    total: number;
-  };
+  eventsUpdated: number;
+  quotaUsed: number;
   errors: string[];
 }
 
-export async function refreshAllChannels(force: boolean = false): Promise<RefreshResult> {
+export async function refreshAllChannels(): Promise<RefreshResult> {
   const result: RefreshResult = {
-    channelsSearched: 0,
+    channelsFetched: 0,
+    videosChecked: 0,
     eventsFound: 0,
-    eventsRefreshed: 0,
-    quotaUsed: { search: 0, videos: 0, total: 0 },
+    eventsUpdated: 0,
+    quotaUsed: 0,
     errors: [],
   };
 
-  // Check if we have enough quota to proceed
-  const quotaStatus = await checkQuota(QUOTA_COSTS.SEARCH * 2);
-  if (!quotaStatus.hasQuota) {
-    result.errors.push(`Insufficient quota: ${quotaStatus.remaining} units remaining`);
-    return result;
-  }
-
-  // Step 1: Find channels that need refresh
-  // If force=true, refresh all active channels regardless of lastFetchedAt
-  const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS);
-
-  const channelsToRefresh = await prisma.channel.findMany({
-    where: force
-      ? { isActive: true }
-      : {
-          isActive: true,
-          OR: [{ lastFetchedAt: null }, { lastFetchedAt: { lt: staleThreshold } }],
-        },
-    orderBy: { fetchPriority: 'desc' },
-    take: MAX_CHANNELS_PER_REFRESH,
+  // Step 1: Get all active channels
+  const channels = await prisma.channel.findMany({
+    where: { isActive: true },
   });
 
-  const staleChannels = channelsToRefresh;
+  // Step 2: Fetch RSS feeds for all channels (FREE - no quota!)
+  const allVideoIds: string[] = [];
 
-  // Step 2: Search for upcoming events on each stale channel
-  for (const channel of staleChannels) {
+  for (const channel of channels) {
     try {
-      // Check quota before each search
-      const quotaCheck = await checkQuota(QUOTA_COSTS.SEARCH);
-      if (!quotaCheck.hasQuota) {
-        result.errors.push('Quota exhausted during refresh');
-        break;
-      }
+      const videos = await fetchChannelRSS(channel.id);
+      result.channelsFetched++;
 
-      const events = await searchUpcomingEvents(channel.id);
-      result.channelsSearched++;
-      result.quotaUsed.search += QUOTA_COSTS.SEARCH;
-      result.eventsFound += events.length;
+      // Collect video IDs (limit to recent 15 per channel)
+      const videoIds = videos.slice(0, 15).map(v => v.videoId);
+      allVideoIds.push(...videoIds);
+
+      // Update last fetched timestamp
+      await prisma.channel.update({
+        where: { id: channel.id },
+        data: { lastFetchedAt: new Date() },
+      });
+    } catch (error) {
+      result.errors.push(`RSS fetch failed for ${channel.title}: ${error}`);
+    }
+  }
+
+  // Step 3: Check video details via API (1 unit per 50 videos)
+  // This tells us which videos are scheduled streams/premieres
+  if (allVideoIds.length > 0) {
+    // Deduplicate
+    const uniqueVideoIds = [...new Set(allVideoIds)];
+    result.videosChecked = uniqueVideoIds.length;
+
+    try {
+      const videoDetails = await getVideoDetails(uniqueVideoIds);
+      result.quotaUsed += Math.ceil(uniqueVideoIds.length / 50) * QUOTA_COSTS.VIDEOS_LIST;
+
+      // Filter to only scheduled events (have liveStreamingDetails with scheduledStartTime)
+      const scheduledEvents = videoDetails.filter(v => v.scheduledStartTime);
+      result.eventsFound = scheduledEvents.length;
 
       // Upsert events
-      for (const event of events) {
+      for (const event of scheduledEvents) {
         await prisma.scheduledEvent.upsert({
           where: { id: event.id },
           create: {
@@ -92,47 +91,14 @@ export async function refreshAllChannels(force: boolean = false): Promise<Refres
             status: event.status,
           },
         });
+        result.eventsUpdated++;
       }
-
-      // Update channel's last fetched timestamp
-      await prisma.channel.update({
-        where: { id: channel.id },
-        data: { lastFetchedAt: new Date() },
-      });
     } catch (error) {
-      result.errors.push(`Error refreshing channel ${channel.id}: ${error}`);
+      result.errors.push(`Video details fetch failed: ${error}`);
     }
   }
 
-  // Step 3: Refresh status of known upcoming/live events
-  const activeEvents = await prisma.scheduledEvent.findMany({
-    where: {
-      status: { in: ['UPCOMING', 'LIVE'] },
-      scheduledStartTime: {
-        gte: new Date(Date.now() - 2 * 60 * 60 * 1000), // Events from 2 hours ago
-      },
-    },
-    select: { id: true },
-  });
-
-  if (activeEvents.length > 0) {
-    const videoIds = activeEvents.map((e) => e.id);
-    const updatedEvents = await getVideoDetails(videoIds);
-    result.quotaUsed.videos += Math.ceil(videoIds.length / 50) * QUOTA_COSTS.VIDEOS_LIST;
-
-    for (const event of updatedEvents) {
-      await prisma.scheduledEvent.update({
-        where: { id: event.id },
-        data: {
-          status: event.status,
-          actualStartTime: event.actualStartTime,
-        },
-      });
-      result.eventsRefreshed++;
-    }
-  }
-
-  // Step 4: Mark old events as completed
+  // Step 4: Mark very old LIVE events as completed
   await prisma.scheduledEvent.updateMany({
     where: {
       status: 'LIVE',
@@ -145,28 +111,25 @@ export async function refreshAllChannels(force: boolean = false): Promise<Refres
     },
   });
 
-  result.quotaUsed.total = result.quotaUsed.search + result.quotaUsed.videos;
-
-  // Log the refresh operation
-  await logQuotaUsage('refresh', result.quotaUsed.total, {
-    channelsSearched: result.channelsSearched,
+  // Log the operation
+  await logQuotaUsage('sync_rss', result.quotaUsed, {
+    channelsFetched: result.channelsFetched,
+    videosChecked: result.videosChecked,
     eventsFound: result.eventsFound,
-    eventsRefreshed: result.eventsRefreshed,
   });
 
   return result;
 }
 
 export async function cleanupOldEvents(): Promise<number> {
-  // Delete events older than 7 days
   const threshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const result = await prisma.scheduledEvent.deleteMany({
+  const deleted = await prisma.scheduledEvent.deleteMany({
     where: {
       scheduledStartTime: { lt: threshold },
       status: { in: ['COMPLETED', 'CANCELLED'] },
     },
   });
 
-  return result.count;
+  return deleted.count;
 }
